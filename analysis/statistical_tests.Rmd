@@ -1,0 +1,120 @@
+---
+title: "Statistical Tests - Ideology in Silicon Valley"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(rstatix)
+library(lsr)
+library(effsize)
+library(psych)
+```
+
+```{r load-data}
+df <- read_csv("../data/processed/reddit_sentiment_analysis_20250624_122803.csv")
+
+df <- df %>%
+  filter(alignment != "other") %>%
+  filter(!grepl('removed|deleted', comment_text))
+```
+
+## 1. Variance Testing
+
+```{r variance-test}
+eacc <- df %>% filter(alignment == "e/acc")
+ea <- df %>% filter(alignment == "EA")
+neutral <- df %>% filter(alignment == "neutral")
+
+var.test(eacc$vader_compound, ea$vader_compound)
+```
+
+## 2. Welch's ANOVA (Unequal Variances)
+
+```{r welch-anova}
+welch_anova <- oneway.test(vader_compound ~ alignment, df, var.equal = FALSE)
+print(welch_anova)
+```
+
+## 3. Descriptive Statistics by Alignment
+
+```{r descriptive-stats}
+summary_stats <- df %>%
+  group_by(alignment) %>%
+  summarise(
+    n = n(),
+    mean = mean(vader_compound),
+    sd = sd(vader_compound),
+    median = median(vader_compound),
+    q25 = quantile(vader_compound, 0.25),
+    q75 = quantile(vader_compound, 0.75),
+    .groups = 'drop'
+  )
+
+print(summary_stats)
+```
+
+## 4. Post-hoc Pairwise Comparisons (Games-Howell)
+
+```{r posthoc}
+posthoc <- games_howell_test(df, vader_compound ~ alignment)
+print(posthoc)
+```
+
+## 6. Extreme Sentiment Chi-Square Test
+
+```{r chi-square}
+df_ext <- df %>%
+  mutate(
+    extreme = abs(vader_compound) >= 0.5,
+    polarity = ifelse(vader_compound > 0, "pos", "neg")
+  ) %>%
+  filter(extreme) %>%
+  filter(alignment != "neutral")
+
+contingency_table <- table(df_ext$alignment, df_ext$polarity)
+print(contingency_table)
+
+chi_test <- chisq.test(contingency_table)
+print(chi_test)
+```
+
+## 7. Proportions of Extreme Sentiment
+
+```{r proportions}
+print("Proportions by alignment:")
+print(table(df$alignment))
+```
+
+## 8. Temporal Trend Analysis
+
+```{r temporal-trend}
+major_tech <- c("technology", "ChatGPT", "singularity", "ArtificialInteligence",
+                "OpenAI", "programming", "Futurology")
+
+tech_monthly <- df %>%
+  mutate(created_month = floor_date(ymd(created_date), unit = "month")) %>%
+  filter(subreddit %in% major_tech) %>%
+  group_by(created_month) %>%
+  summarise(
+    avg_compound = mean(vader_compound, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+ols <- lm(avg_compound ~ created_month, data = tech_monthly)
+print(summary(ols))
+```
+
+## 9. VADER vs TextBlob Concordance
+
+```{r concordance}
+pearson <- cor.test(df$vader_compound, df$textblob_polarity, method = "pearson")
+print(pearson)
+
+spearman <- cor.test(df$vader_compound, df$textblob_polarity, method = "spearman")
+print(spearman)
+```

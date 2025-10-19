@@ -1,0 +1,240 @@
+---
+title: "Visualizations - Ideology in Silicon Valley"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, fig.width = 10, fig.height = 6)
+```
+
+```{r libraries}
+library(tidyverse)
+library(lubridate)
+library(showtext)
+library(viridis)
+```
+
+```{r fonts}
+font_add_google(name = "Crimson Pro", family = "crimson")
+showtext_auto()
+```
+
+```{r load-data}
+df <- read_csv("../data/processed/reddit_sentiment_analysis_20250624_122803.csv")
+
+df <- df %>%
+  filter(alignment != "other") %>%
+  filter(!grepl('removed|deleted', comment_text))
+```
+
+```{r colors}
+custom_colors <- c(
+  "e/acc" = "#CA6702",
+  "EA" = "#0A9396",
+  "neutral" = "#94A187"
+)
+```
+
+## 1. Sentiment Distribution by Alignment
+
+```{r sentiment-boxplot}
+filtered_data <- df %>%
+  filter(alignment %in% c("e/acc", "EA", "neutral")) %>%
+  mutate(alignment = factor(alignment, levels = c("e/acc", "neutral", "EA")))
+
+mean_labels <- filtered_data %>%
+  group_by(alignment) %>%
+  summarise(mean_score = mean(vader_compound, na.rm = TRUE)) %>%
+  ungroup()
+
+sentiment_plot <- ggplot(filtered_data, aes(x = alignment, y = vader_compound, fill = alignment)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 4, size = 3, color = "black",
+               position = position_dodge(width = 0.75)) +
+  geom_text(
+    data = mean_labels,
+    aes(x = alignment, y = mean_score, label = round(mean_score, 3), family = "crimson"),
+    color = "black",
+    vjust = -1,
+    inherit.aes = FALSE
+  ) +
+  scale_fill_manual(values = custom_colors) +
+  labs(
+    title = "VADER Compound Sentiment Scores by Alignment Category",
+    x = "Subreddit Category",
+    y = "VADER Compound Score",
+    fill = "Alignment"
+  ) +
+  theme_minimal(base_family = "crimson") +
+  theme(text = element_text(family = "crimson"))
+
+print(sentiment_plot)
+ggsave("../figures/sentiment_boxplot.pdf", sentiment_plot, width = 8, height = 6, dpi = 300)
+```
+
+## 2. Monthly Sentiment Evolution
+
+```{r monthly-sentiment}
+major_tech <- c("technology", "ChatGPT", "singularity", "ArtificialInteligence",
+                "OpenAI", "programming", "Futurology")
+
+df_month <- df %>%
+  mutate(created_month = floor_date(ymd(created_date), unit = "month")) %>%
+  filter(subreddit %in% major_tech)
+
+monthly_sentiment <- df_month %>%
+  group_by(created_month) %>%
+  summarise(
+    avg_compound = mean(vader_compound, na.rm = TRUE),
+    avg_pos = mean(vader_positive, na.rm = TRUE),
+    avg_neg = mean(vader_negative, na.rm = TRUE)
+  ) %>%
+  pivot_longer(cols = starts_with("avg_"), names_to = "score_type", values_to = "score")
+
+month_plot <- ggplot(monthly_sentiment, aes(x = created_month, y = score, color = score_type)) +
+  geom_line(size = 1.2) +
+  scale_color_manual(
+    values = c("avg_compound" = "grey20", "avg_pos" = "grey80", "avg_neg" = "grey50"),
+    labels = c("avg_compound" = "Compound", "avg_pos" = "Positive", "avg_neg" = "Negative")
+  ) +
+  labs(
+    title = "Monthly Evolution of VADER Sentiment Scores",
+    x = "Month",
+    y = "Average VADER Score",
+    color = "VADER Metric"
+  ) +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "3 months") +
+  geom_vline(xintercept = as.Date("2022-11-30"), linetype = "dashed", color = "black", size = 1) +
+  geom_label(
+    aes(x = as.Date("2022-11-30"), y = 0.13, label = "ChatGPT Launch"),
+    angle = 45,
+    size = 2.5,
+    color = "black",
+    fill = "white",
+    label.padding = unit(0.15, "lines")
+  ) +
+  theme_minimal(base_family = "crimson") +
+  theme(
+    text = element_text(size = 12, family = "crimson"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(month_plot)
+ggsave("../figures/monthly_sentiment.pdf", month_plot, width = 8, height = 6, dpi = 300)
+```
+
+## 3. Sentiment Volatility Over Time
+
+```{r volatility}
+df_vol <- df %>%
+  mutate(created_month = floor_date(ymd(created_date), "month")) %>%
+  filter(alignment != "other")
+
+monthly_volatility <- df_vol %>%
+  group_by(alignment, created_month) %>%
+  summarise(sd_compound = sd(vader_compound, na.rm = TRUE), .groups = "drop")
+
+vol_plot <- ggplot(monthly_volatility, aes(x = created_month, y = sd_compound, color = alignment)) +
+  geom_line(size = 1.2) +
+  scale_color_manual(values = custom_colors) +
+  labs(
+    title = "Monthly Sentiment Volatility by Alignment",
+    x = "Month",
+    y = "Standard Deviation of VADER Compound",
+    color = "Alignment"
+  ) +
+  theme_minimal(base_family = "crimson") +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "3 months") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, family = "crimson"),
+    text = element_text(family = "crimson")
+  )
+
+print(vol_plot)
+ggsave("../figures/volatility.pdf", vol_plot, width = 8, height = 6, dpi = 300)
+```
+
+## 4. Extreme Sentiment Proportions
+
+```{r extreme-sentiment}
+df_extremes <- df %>%
+  mutate(
+    created_date = ymd(created_date),
+    created_month = floor_date(created_date, "month"),
+    extreme_pos = vader_compound >= 0.5,
+    extreme_neg = vader_compound <= -0.5
+  ) %>%
+  filter(alignment != "other")
+
+monthly_extremes <- df_extremes %>%
+  group_by(alignment, created_month) %>%
+  summarise(
+    pct_extreme_pos = mean(extreme_pos, na.rm = TRUE),
+    pct_extreme_neg = mean(extreme_neg, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = starts_with("pct_extreme"),
+    names_to = "extreme_type",
+    values_to = "proportion"
+  ) %>%
+  mutate(
+    sentiment_type = case_when(
+      extreme_type == "pct_extreme_pos" ~ "Extreme Positive Sentiment",
+      extreme_type == "pct_extreme_neg" ~ "Extreme Negative Sentiment"
+    )
+  )
+
+extreme_plot <- ggplot(monthly_extremes, aes(x = created_month, y = proportion, color = alignment)) +
+  geom_line(size = 1.2) +
+  facet_wrap(~sentiment_type, ncol = 1, scales = "free_y") +
+  scale_color_manual(values = custom_colors) +
+  scale_x_date(date_labels = "%b %Y", date_breaks = "3 months") +
+  labs(
+    title = "Proportion of Extreme Sentiment (|VADER| > 0.5) by Month and Alignment",
+    x = "Month",
+    y = "Proportion of Comments",
+    color = "Alignment"
+  ) +
+  theme_minimal(base_family = "crimson") +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, family = "crimson"),
+    strip.text = element_text(size = 12, family = "crimson"),
+    legend.position = "bottom",
+    text = element_text(family = "crimson")
+  )
+
+print(extreme_plot)
+ggsave("../figures/extreme_sentiment.pdf", extreme_plot, width = 8, height = 6, dpi = 300)
+```
+
+## 5. Overall Extreme Sentiment by Alignment
+
+```{r overall-extreme}
+overall_extreme <- df_extremes %>%
+  group_by(alignment) %>%
+  summarise(
+    pct_extreme_pos = mean(extreme_pos, na.rm = TRUE),
+    pct_extreme_neg = mean(extreme_neg, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+print(overall_extreme)
+```
+
+## Summary Statistics Tables
+
+```{r summary-tables}
+df_summary <- df %>%
+  group_by(alignment) %>%
+  summarise(
+    n = n(),
+    mean = mean(vader_compound),
+    sd = sd(vader_compound),
+    median = median(vader_compound),
+    q25 = quantile(vader_compound, 0.25),
+    q75 = quantile(vader_compound, 0.75)
+  )
+
+print(df_summary)
+```
