@@ -153,7 +153,8 @@ January 1, 2022 - December 31, 2024
 If you use this code or data, please cite:
 
 ```
-[Your citation here]
+Khan, Y. (2025). Ideology in Silicon Valley: A Sentiment Analysis of AI Discourse 
+on Reddit. Oxford Internet Institute, University of Oxford.
 ```
 
 ## License
@@ -162,4 +163,8 @@ MIT License
 
 ## Contact
 
-[Your contact information]
+**Yasmeena Khan**  
+Oxford Internet Institute  
+University of Oxford  
+Email: yasmeenak@gmail.com  
+GitHub: [@yasmeenakhan](https://github.com/yasmeenakhan)
